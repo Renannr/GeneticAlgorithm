@@ -1,9 +1,11 @@
 import time
+import copy
 import random
 import concurrent.futures
 
 class Individual:
-    def __init__(self, attr, min_max_val, mutation_rate):
+    def __init__(self, ind_id, attr, min_max_val, mutation_rate):
+        self._id = ind_id
         self._attr = attr
         self._fitness = 0
         self._min_max_val = min_max_val
@@ -21,6 +23,16 @@ class Individual:
     def fitness(self):
         return self._fitness
 
+    @property
+    def id(self):
+        return self._id
+
+    def get_fitness(self):
+        return self._fitness
+
+    def get_attr(self):
+        return self._attr
+
     def fitness_function(self):
         self._fitness = sum(self._attr)
         time.sleep(1)
@@ -33,7 +45,6 @@ class Individual:
                     new_value = random.randint(self._min_max_val[0], self._min_max_val[1])
                 self._attr[i] = new_value
 
-
 class Population:
     def __init__(self, num_individuals, chromosome_size, min_max_val, mutation_rate, random_seed):
         self._num_individuals = num_individuals
@@ -41,27 +52,31 @@ class Population:
         self._min_max_val = min_max_val
         self._mutation_rate = mutation_rate
         self._individuals = self._create_individuals(random_seed)
+        self._best_individual = None
 
     def _create_individuals(self, random_seed):
         random.seed(random_seed)
         individuals = []
         possible_values = list(range(self._min_max_val[1] + 1))
 
-        for _ in range(self._num_individuals):
+        for index in range(self._num_individuals):
             random.shuffle(possible_values)
             attr = possible_values[:self._chromosome_size]
-            individual = Individual(attr, self._min_max_val, self._mutation_rate)
+            individual = Individual(index, attr, self._min_max_val, self._mutation_rate)
             individuals.append(individual)
         return individuals
 
     def rank_individuals(self):
         self._individuals.sort(key=lambda ind: ind.fitness, reverse=True)
 
+        if((not self._best_individual) or (self._individuals[0].fitness > self._best_individual.fitness)):
+            self._best_individual = copy.deepcopy(self._individuals[0])
+
     def combine_individuals(self):
         self.rank_individuals()
         new_attrs = []
 
-        for i in range(0, self._num_individuals, 2):
+        for i in range(0, self._num_individuals - 1, 2):
             attr_ind1 = self._individuals[i].attr[:self._chromosome_size // 2]
             attr_ind2 = self._individuals[i + 1].attr[self._chromosome_size // 2:]
             new_attr = attr_ind1 + attr_ind2
@@ -71,6 +86,11 @@ class Population:
 
             new_attr = self._resolve_duplicates(new_attr)
             new_attrs.append(new_attr)
+
+        # Handle the last individual if the population size is odd
+        if self._num_individuals % 2 == 1:
+            last_individual = self._individuals[-1]
+            new_attrs.append(self._resolve_duplicates(last_individual.attr + last_individual.attr))
 
         for i in range(self._num_individuals // 2):
             self._individuals[-(i + 1)].attr = new_attrs[i]
@@ -85,14 +105,15 @@ class Population:
     def list_individuals(self):
         self.rank_individuals()
         for idx, ind in enumerate(self._individuals):
-            print(f"Individual {idx + 1}:")
+            print(f"Individual {ind.id}:")
             print(f"Attributes: {ind.attr}")
             print(f"Fitness: {ind.fitness}")
             print()
 
     def apply_mutation(self):
-        for individual in self._individuals:
-            individual.mutation()
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [executor.submit(individual.mutation) for individual in self._individuals]
+            concurrent.futures.wait(futures)
 
 
 class GeneticAlgorithm:
@@ -148,16 +169,20 @@ class GeneticAlgorithm:
         end_total_time = time.time()
         minutes, seconds, milliseconds = self.calc_time(start_total_time, end_total_time)
         print(f"\nTotal time: {minutes} minutes, {seconds} seconds, and {milliseconds} milliseconds")
+        print("\nBest individual:")
+        print(f"Attributes: {self._population._best_individual.get_attr()}")
+        print(f"Fitness: {self._population._best_individual.get_fitness()}")
+        print()
 
 
 def main():
     num_individuals = 10
-    chromosome_size = 6
-    min_max_val = [0, 30]
+    chromosome_size = 4
+    min_max_val = [0, 9]
     mutation_rate = 0.05
     random_seed = 42
-    generations = 10
-    threads = False
+    generations = 20
+    threads = True
 
     genetic_algorithm = GeneticAlgorithm(num_individuals, chromosome_size, min_max_val, mutation_rate, random_seed, threads)
     genetic_algorithm.run(generations)
